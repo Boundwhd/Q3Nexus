@@ -5,7 +5,7 @@
 
 #include "../include/rmsnorm.cuh"
 
-torch::Tensor rmsnorm_bf16xbf16_cuda_pybind(
+torch::Tensor rmsnorm_bf16xbf16_cuda(
     const torch::Tensor& hidden_states,  
     const torch::Tensor& weight,
     float epsilon
@@ -53,5 +53,5 @@ torch::Tensor rmsnorm_bf16xbf16_cuda_pybind(
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("rmsnorm_bf16xbf16", &rmsnorm_bf16xbf16_cuda_pybind, "RMSNorm for BF16 (CUDA)");
+    m.def("rmsnorm_bf16xbf16", &rmsnorm_bf16xbf16_cuda, "RMSNorm for BF16 (CUDA)");
 }

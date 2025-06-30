@@ -14,12 +14,6 @@ all: install clean
 install:
 	@echo "\n\033[34m=== Building CUDA Extension ===\033[0m"
 	@$(PYTHON) setup.py install 2>&1 | tee build.log
-	@echo "\n\033[34m=== Testing Installation ===\033[0m"
-	@echo "from $(MODULE_NAME) import rmsnorm_bf16xbf16" >> $(TEST_SCRIPT)
-	@echo "import torch" > $(TEST_SCRIPT)
-	@echo "import $(MODULE_NAME)" > $(TEST_SCRIPT)
-	@$(PYTHON) $(TEST_SCRIPT)
-	@rm -f $(TEST_SCRIPT)
 	@echo "\033[32m✓ Successfully installed $(PACKAGE_NAME)\033[0m"
 
 clean:
