@@ -12,6 +12,10 @@ torch::Tensor rmsnorm_bf16xbf16_cuda(
 ) {
     auto out = torch::empty_like(hidden_states);
 
+    const int batch_size = hidden_states.size(0);
+    const int seq_len = hidden_states.size(1);
+    const int hidden_size = hidden_states.size(2);
+
     TORCH_CHECK(hidden_states.dim() == 3, "hidden_states must be 3D [batch, seq_len, hidden_size]");
     TORCH_CHECK(weight.dim() == 1, "weight must be 1D [hidden_size]");
     TORCH_CHECK(hidden_states.size(2) == weight.size(0), "Hidden size mismatch: hidden_states hidden_size=", hidden_states.size(2), " vs weight size=", weight.size(0));
@@ -24,10 +28,6 @@ torch::Tensor rmsnorm_bf16xbf16_cuda(
     TORCH_CHECK(weight.scalar_type() == torch::kBFloat16, "weight must be BF16 tensor");
     TORCH_CHECK(out.scalar_type() == torch::kBFloat16, "out must be BF16 tensor");
 
-    const int batch_size = hidden_states.size(0);
-    const int seq_len = hidden_states.size(1);
-    const int hidden_size = hidden_states.size(2);
-    
     cudaStream_t stream = c10::cuda::getCurrentCUDAStream();
 
     launch_rmsnorm_bf16xbf16(
@@ -52,6 +52,75 @@ torch::Tensor rmsnorm_bf16xbf16_cuda(
     return out;
 }
 
+void fused_add_rmsnorm_bf16xbf16_cuda(
+    const torch::Tensor& hidden_states, 
+    const torch::Tensor& residual,
+    const torch::Tensor& weight,
+    torch::Tensor& out_hidden_states,
+    torch::Tensor& out_residual,
+    float epsilon
+) {
+    const auto batch_size = residual.size(0);
+    const auto seq_len = residual.size(1);
+    const auto hidden_size = residual.size(2);
+
+    TORCH_CHECK(hidden_states.size(0) == batch_size && hidden_states.size(1) == seq_len && hidden_states.size(2) == hidden_size,"residual and hidden_states must have same dimensions");
+    TORCH_CHECK(weight.size(0) == hidden_size,"weight size must match hidden_size");
+
+    TORCH_CHECK(hidden_states.is_contiguous(), "hidden_states must be contiguous");
+    TORCH_CHECK(residual.is_contiguous(), "residual must be contiguous");
+    TORCH_CHECK(weight.is_contiguous(), "weight must be contiguous");
+    TORCH_CHECK(out_hidden_states.is_contiguous(), "out_hidden_states must be contiguous");
+    TORCH_CHECK(out_residual.is_contiguous(), "out_residual must be contiguous");
+    
+    TORCH_CHECK(out_hidden_states.dim() == 3, "out_hidden_states must be 3D");
+    TORCH_CHECK(out_hidden_states.size(0) == batch_size, "out_hidden_states batch size mismatch");
+    TORCH_CHECK(out_hidden_states.size(1) == seq_len, "out_hidden_states seq_len mismatch");
+    TORCH_CHECK(out_hidden_states.size(2) == hidden_size, "out_hidden_states hidden_size mismatch");
+    
+    TORCH_CHECK(out_residual.dim() == 3, "out_residual must be 3D");
+    TORCH_CHECK(out_residual.size(0) == batch_size, "out_residual batch size mismatch");
+    TORCH_CHECK(out_residual.size(1) == seq_len, "out_residual seq_len mismatch");
+    TORCH_CHECK(out_residual.size(2) == hidden_size, "out_residual hidden_size mismatch");
+
+    TORCH_CHECK(hidden_states.is_cuda(), "hidden_states must be on CUDA");
+    TORCH_CHECK(residual.is_cuda(), "residual must be on CUDA");
+    TORCH_CHECK(weight.is_cuda(), "weight must be on CUDA");
+    TORCH_CHECK(out_hidden_states.is_cuda(), "out_hidden_states must be on CUDA");
+    TORCH_CHECK(out_residual.is_cuda(), "out_residual must be on CUDA");
+
+    TORCH_CHECK(residual.scalar_type() == torch::kBFloat16, "residual must be bfloat16");
+    TORCH_CHECK(hidden_states.scalar_type() == torch::kBFloat16, "hidden_states must be bfloat16");
+    TORCH_CHECK(weight.scalar_type() == torch::kBFloat16, "weight must be bfloat16");
+    TORCH_CHECK(out_hidden_states.scalar_type() == torch::kBFloat16, "out_hidden_states must be BF16 tensor");
+    TORCH_CHECK(out_residual.scalar_type() == torch::kBFloat16,  "out_residual must be BF16 tensor");
+
+    cudaStream_t stream = c10::cuda::getCurrentCUDAStream();
+
+    launch_fused_add_rmsnorm_bf16xbf16(
+        reinterpret_cast<const __nv_bfloat16*>(hidden_states.data_ptr<torch::BFloat16>()),
+        reinterpret_cast<const __nv_bfloat16*>(residual.data_ptr<torch::BFloat16>()),
+        reinterpret_cast<const __nv_bfloat16*>(weight.data_ptr<torch::BFloat16>()),
+        reinterpret_cast<__nv_bfloat16*>(out_hidden_states.data_ptr<torch::BFloat16>()),
+        reinterpret_cast<__nv_bfloat16*>(out_residual.data_ptr<torch::BFloat16>()),
+        batch_size,
+        seq_len,
+        hidden_size,
+        epsilon,
+        stream
+    );
+
+    cudaError_t err = cudaGetLastError();
+    TORCH_CHECK(err == cudaSuccess, 
+        "CUDA Error: ", cudaGetErrorString(err));
+    
+    err = cudaDeviceSynchronize();
+    TORCH_CHECK(err == cudaSuccess,
+        "CUDA Sync Error: ", cudaGetErrorString(err));
+}
+
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("rmsnorm_bf16xbf16", &rmsnorm_bf16xbf16_cuda, "RMSNorm for BF16 (CUDA)");
+    m.def("fused_add_rmsnorm_bf16xbf16", &fused_add_rmsnorm_bf16xbf16_cuda, "Fused add rmsorm for BF16 (CUDA)");
 }
