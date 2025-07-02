@@ -1,9 +1,10 @@
+#include <vector>
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
 #include <c10/cuda/CUDAStream.h>
 #include <torch/extension.h>
-
 #include "../include/rmsnorm.cuh"
+#include "../include/linear.cuh"
 
 torch::Tensor rmsnorm_bf16xbf16_cuda(
     const torch::Tensor& hidden_states,  
@@ -120,7 +121,57 @@ void fused_add_rmsnorm_bf16xbf16_cuda(
 }
 
 
+torch::Tensor linear_bf16xbf16_cuda(
+    const torch::Tensor& x,
+    const torch::Tensor& A
+) {
+    TORCH_CHECK(x.device().is_cuda(), "x must be a CUDA tensor");
+    TORCH_CHECK(A.device().is_cuda(), "A must be a CUDA tensor");
+    TORCH_CHECK(x.scalar_type() == torch::kBFloat16, "x must be BF16 tensor");
+    TORCH_CHECK(A.scalar_type() == torch::kBFloat16, "A must be BF16 tensor");
+    TORCH_CHECK(x.is_contiguous(), "x must be contiguous");
+    TORCH_CHECK(A.is_contiguous(), "A must be contiguous");
+
+    TORCH_CHECK(x.dim() >= 2 && x.dim() <= 4, "x must be 2D, 3D or 4D tensor");
+    TORCH_CHECK(A.dim() == 2, "A must be 2D tensor [N, K]");
+
+    int M = 1;
+    std::vector<int64_t> original_sizes;
+    for (int i = 0; i < x.dim() - 1; i++) {
+        M *= x.size(i);
+        original_sizes.push_back(x.size(i));
+    }
+    const int K = x.size(-1);
+    const int N = A.size(0);
+
+    TORCH_CHECK(K == A.size(1), 
+        "x last dimension must match A's last dimension. Got ", K, " vs ", A.size(1));
+
+
+    original_sizes.push_back(N);
+    auto y = torch::empty(original_sizes, torch::TensorOptions().dtype(torch::kBFloat16).device(x.device()));
+    launch_linear_bf16xbf16(
+        reinterpret_cast<const __nv_bfloat16*>(x.data_ptr<torch::BFloat16>()),
+        reinterpret_cast<const __nv_bfloat16*>(A.data_ptr<torch::BFloat16>()),
+        reinterpret_cast<__nv_bfloat16*>(y.data_ptr<torch::BFloat16>()),
+        M,
+        N,
+        K
+    );
+
+    cudaError_t err = cudaGetLastError();
+    TORCH_CHECK(err == cudaSuccess, 
+        "CUDA Error: ", cudaGetErrorString(err));
+    
+    err = cudaDeviceSynchronize();
+    TORCH_CHECK(err == cudaSuccess,
+        "CUDA Sync Error: ", cudaGetErrorString(err));
+    
+    return y;
+}
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("rmsnorm_bf16xbf16", &rmsnorm_bf16xbf16_cuda, "RMSNorm for BF16 (CUDA)");
     m.def("fused_add_rmsnorm_bf16xbf16", &fused_add_rmsnorm_bf16xbf16_cuda, "Fused add rmsorm for BF16 (CUDA)");
+    m.def("linear_bf16xbf16", &linear_bf16xbf16_cuda, "Linear for BF16 (CUDA)");
 }
