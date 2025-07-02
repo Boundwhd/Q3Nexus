@@ -33,10 +33,10 @@ nvcc_optimization_flags = [
     # --------------------------
     # 架构相关优化
     # --------------------------
-    # "--ftz=true",       # 将非正规浮点数刷新为零（提高计算效率）
-    # "--prec-div=false", # 禁用高精度除法（提高速度）
-    # "--prec-sqrt=false",# 禁用高精度平方根（提高速度）
-    # "--fmad=true",      # 启用融合乘加（FMA）优化
+    "--ftz=true",       # 将非正规浮点数刷新为零（提高计算效率）
+    "--prec-div=false", # 禁用高精度除法（提高速度）
+    "--prec-sqrt=false",# 禁用高精度平方根（提高速度）
+    "--fmad=true",      # 启用融合乘加（FMA）优化
     
     # --------------------------
     # 调试和分析
@@ -69,7 +69,7 @@ setup(
                 *[os.path.join("csrc", f) for f in os.listdir("csrc") if f.endswith(".cu")]
             ],
             include_dirs=include_dirs,
-            # libraries=["cudart", "c10", "torch", "torch_cpu", "torch_python"],
+            libraries=["cublas"],
             extra_compile_args={
                 "cxx": [
                     "-O3"
