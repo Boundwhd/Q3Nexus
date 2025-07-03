@@ -51,5 +51,29 @@ class MLP(nn.Module):
         hidden_states = torch.matmul(hidden_states, self.down_weight.T)
         return hidden_states
 
+
+class Qwen3Attention(nn.Module):
+    def __init__(
+        self,
+        hidden_size: int,
+        num_heads: int,
+        num_kv_heads: int,
+        layer_id: int = 0,
+        rope_theta: float = 1000000,
+        head_dim: Optional[int] = None,
+        max_position_embeddings: int = 32768,
+        rms_norm_eps: float = None,
+    ) -> None:
+        super().__init__()
+        self.hidden_size = hidden_size
+        self.total_num_heads = num_heads
+        self.total_kv_heads = num_kv_heads
+        self.head_dim = head_dim or hidden_size // self.total_num_heads
+        self.q_size = self.num_heads * self.head_dim
+        self.kv_size = self.num_kv_heads * self.head_dim
+        self.scaling = self.head_dim**-0.5
+        self.rope_theta = rope_theta
+        self.max_position_embeddings = max_position_embeddings
+
 if __name__ == "__main__":
     pass
