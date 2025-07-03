@@ -26,3 +26,8 @@ def linear_bf16xbf16(
     weight: torch.Tensor
 ) -> torch.Tensor:
     return _C.linear_bf16xbf16(hidden_states, weight)
+
+def silu_bf16xbf16(
+    hidden_states: torch.Tensor,
+) -> torch.Tensor:
+    return _C.silu_bf16xbf16(hidden_states)

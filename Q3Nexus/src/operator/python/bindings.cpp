@@ -3,8 +3,11 @@
 #include <cuda_bf16.h>
 #include <c10/cuda/CUDAStream.h>
 #include <torch/extension.h>
+
+
 #include "../include/rmsnorm.cuh"
 #include "../include/linear.cuh"
+#include "../include/silu.cuh"
 
 torch::Tensor rmsnorm_bf16xbf16_cuda(
     const torch::Tensor& hidden_states,  
@@ -170,8 +173,38 @@ torch::Tensor linear_bf16xbf16_cuda(
     return y;
 }
 
+torch::Tensor silu_bf16xbf16_cuda(const torch::Tensor& hidden_states) {
+    
+    TORCH_CHECK(hidden_states.dim() == 3, "hidden_states must have 3 dimensions [batch, seq_len, 2*intermediate_size]");
+
+    int64_t batch_size = hidden_states.size(0);
+    int64_t seq_len = hidden_states.size(1);
+    int64_t two_intermediate = hidden_states.size(2);
+    TORCH_CHECK(two_intermediate % 2 == 0, "The last dimension must be even (2*intermediate_size)");
+    int64_t intermediate_size = two_intermediate / 2;
+
+    auto out = torch::empty({batch_size, seq_len, intermediate_size}, hidden_states.options());
+
+    const __nv_bfloat16* input_ptr = reinterpret_cast<const __nv_bfloat16*>(hidden_states.data_ptr<at::BFloat16>());
+    __nv_bfloat16* output_ptr = reinterpret_cast<__nv_bfloat16*>(out.data_ptr<at::BFloat16>());
+
+    cudaStream_t stream = c10::cuda::getCurrentCUDAStream();
+    launch_silu_bf16xbf16(
+        input_ptr,
+        output_ptr,
+        static_cast<int>(intermediate_size),
+        static_cast<int>(batch_size),
+        static_cast<int>(seq_len),
+        stream
+    );
+
+    return out;
+}
+
+
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("rmsnorm_bf16xbf16", &rmsnorm_bf16xbf16_cuda, "RMSNorm for BF16 (CUDA)");
     m.def("fused_add_rmsnorm_bf16xbf16", &fused_add_rmsnorm_bf16xbf16_cuda, "Fused add rmsorm for BF16 (CUDA)");
     m.def("linear_bf16xbf16", &linear_bf16xbf16_cuda, "Linear for BF16 (CUDA)");
+    m.def("silu_bf16xbf16", &silu_bf16xbf16_cuda, "SiLU BF16 x BF16 CUDA (CUDA)");
 }
