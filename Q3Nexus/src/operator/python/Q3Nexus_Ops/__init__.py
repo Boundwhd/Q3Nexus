@@ -31,3 +31,11 @@ def silu_bf16xbf16(
     hidden_states: torch.Tensor,
 ) -> torch.Tensor:
     return _C.silu_bf16xbf16(hidden_states)
+
+def rope_cos_sin_bf16(
+    positions: torch.Tensor,    # [0, 1, 2, 3, 4] or [5]
+    inv_freq: torch.Tensor,     # [head_dim / 2]
+    cos: torch.Tensor,          # [5, head_dim] or [1, head_dim]
+    sin: torch.Tensor,          # [5, head_dim] or [1, head_dim]
+) -> None:
+    return _C.rope_cos_sin_bf16(positions, inv_freq, cos, sin)

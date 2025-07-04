@@ -8,6 +8,7 @@
 #include "../include/rmsnorm.cuh"
 #include "../include/linear.cuh"
 #include "../include/silu.cuh"
+#include "../include/rope.cuh"
 
 torch::Tensor rmsnorm_bf16xbf16_cuda(
     const torch::Tensor& hidden_states,  
@@ -198,7 +199,65 @@ torch::Tensor silu_bf16xbf16_cuda(const torch::Tensor& hidden_states) {
         stream
     );
 
+    cudaError_t err = cudaGetLastError();
+    TORCH_CHECK(err == cudaSuccess, 
+        "CUDA Error: ", cudaGetErrorString(err));
+    
+    err = cudaDeviceSynchronize();
+    TORCH_CHECK(err == cudaSuccess,
+        "CUDA Sync Error: ", cudaGetErrorString(err));
+
     return out;
+}
+
+void rope_cos_sin_bf16_cuda(
+    torch::Tensor positions,
+    torch::Tensor inv_freq,
+    torch::Tensor cos,
+    torch::Tensor sin
+) {
+    
+    TORCH_CHECK(positions.is_cuda(), "positions must be a CUDA tensor");
+    TORCH_CHECK(inv_freq.is_cuda(), "inv_freq must be a CUDA tensor");
+    TORCH_CHECK(cos.is_cuda(), "cos must be a CUDA tensor");
+    TORCH_CHECK(sin.is_cuda(), "sin must be a CUDA tensor");
+    
+    TORCH_CHECK(positions.scalar_type() == torch::kInt, "positions must be int32 tensor");
+    TORCH_CHECK(inv_freq.scalar_type() == torch::kBFloat16, "inv_freq must be bfloat16 tensor");
+    TORCH_CHECK(cos.scalar_type() == torch::kBFloat16, "cos must be bfloat16 tensor");
+    TORCH_CHECK(sin.scalar_type() == torch::kBFloat16, "sin must be bfloat16 tensor");
+    
+    TORCH_CHECK(positions.dim() == 1, "positions must be 1D tensor");
+    TORCH_CHECK(inv_freq.dim() == 1, "inv_freq must be 1D tensor");
+    TORCH_CHECK(cos.dim() == 2, "cos must be 2D tensor");
+    TORCH_CHECK(sin.dim() == 2, "sin must be 2D tensor");
+    
+    int seq_len = positions.size(0);
+    int head_dim = cos.size(1);
+    
+    TORCH_CHECK(cos.size(0) == seq_len, "cos size(0) must match positions");
+    TORCH_CHECK(sin.size(0) == seq_len, "sin size(0) must match positions");
+    TORCH_CHECK(inv_freq.size(0) == head_dim / 2, 
+                "inv_freq size(0) must be half of head_dim");
+
+    cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+    
+    launch_rope_cos_sin_bf16(
+        positions.data_ptr<uint32_t>(),
+        reinterpret_cast<__nv_bfloat16*>(inv_freq.data_ptr<at::BFloat16>()),
+        reinterpret_cast<__nv_bfloat16*>(cos.data_ptr<at::BFloat16>()),
+        reinterpret_cast<__nv_bfloat16*>(sin.data_ptr<at::BFloat16>()),
+        seq_len,
+        head_dim,
+        stream
+    );
+    cudaError_t err = cudaGetLastError();
+    TORCH_CHECK(err == cudaSuccess, 
+        "CUDA Error: ", cudaGetErrorString(err));
+    
+    err = cudaDeviceSynchronize();
+    TORCH_CHECK(err == cudaSuccess,
+        "CUDA Sync Error: ", cudaGetErrorString(err));
 }
 
 
@@ -206,5 +265,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("rmsnorm_bf16xbf16", &rmsnorm_bf16xbf16_cuda, "RMSNorm for BF16 (CUDA)");
     m.def("fused_add_rmsnorm_bf16xbf16", &fused_add_rmsnorm_bf16xbf16_cuda, "Fused add rmsorm for BF16 (CUDA)");
     m.def("linear_bf16xbf16", &linear_bf16xbf16_cuda, "Linear for BF16 (CUDA)");
-    m.def("silu_bf16xbf16", &silu_bf16xbf16_cuda, "SiLU BF16 x BF16 CUDA (CUDA)");
+    m.def("silu_bf16xbf16", &silu_bf16xbf16_cuda, "SiLU BF16 x BF16 (CUDA)");
+    m.def("rope_cos_sin_bf16", &rope_cos_sin_bf16_cuda, "Rope BF16 (CUDA)");
 }

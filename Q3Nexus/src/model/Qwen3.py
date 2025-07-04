@@ -2,6 +2,49 @@ import torch
 import torch.nn as nn
 from typing import Optional, Tuple, Union
 
+from config import Qwen3Config
+
+class ForwardBatch():
+    def __init__(
+        self,
+        is_prompt: bool,
+        pos: int,
+        positions: torch.Tensor
+    ) -> None:
+        self.is_prompt = is_prompt
+        self.pos = pos
+        self.positions = positions
+
+# ------------------ RotaryPositionEmbedding -------------------
+# --------------------------------------------------------------
+from Q3Nexus_Ops import rope_cos_sin_bf16
+def _compute_inv_freq(config: Qwen3Config) -> torch.Tensor:
+    head_dim = config.head_dim
+    inv_freq = 1.0 / (
+        config.rope_theta ** 
+        (torch.arange(0, head_dim, 2, dtype=torch.int64).to(device="cuda", dtype=torch.bfloat16) / head_dim)
+    )
+    return inv_freq
+
+class RotaryPositionEmbedding(nn.Module):
+    def __init__(
+            self, 
+            config: Qwen3Config
+        ) -> None:
+        super().__init__()
+        self.head_dim = config.head_dim
+        self.inv_freq = _compute_inv_freq(config)
+    
+    def forward(
+        self, 
+        positions: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        cos = torch.ones([positions.size(0), self.head_dim], dtype=torch.bfloat16, device="cuda")
+        sin = torch.ones([positions.size(0), self.head_dim], dtype=torch.bfloat16, device="cuda")
+        rope_cos_sin_bf16(positions, self.inv_freq, cos, sin)
+        return cos, sin
+
+
 # ----------------- RMSNorm -----------------
 # -------------------------------------------
 from Q3Nexus_Ops import rmsnorm_bf16xbf16, fused_add_rmsnorm_bf16xbf16
@@ -46,34 +89,14 @@ class MLP(nn.Module):
         self, 
         hidden_states
     ) -> torch.Tensor:
-        hidden_states = torch.matmul(hidden_states, self.fused_gate_up_weight.T)    # hidden_states [batch, seq, 2 * intermediate_size]
+        hidden_states = torch.matmul(hidden_states, self.fused_gate_up_weight.T)
         hidden_states = silu_bf16xbf16(hidden_states)
         hidden_states = torch.matmul(hidden_states, self.down_weight.T)
         return hidden_states
 
-
-class Qwen3Attention(nn.Module):
-    def __init__(
-        self,
-        hidden_size: int,
-        num_heads: int,
-        num_kv_heads: int,
-        layer_id: int = 0,
-        rope_theta: float = 1000000,
-        head_dim: Optional[int] = None,
-        max_position_embeddings: int = 32768,
-        rms_norm_eps: float = None,
-    ) -> None:
-        super().__init__()
-        self.hidden_size = hidden_size
-        self.total_num_heads = num_heads
-        self.total_kv_heads = num_kv_heads
-        self.head_dim = head_dim or hidden_size // self.total_num_heads
-        self.q_size = self.num_heads * self.head_dim
-        self.kv_size = self.num_kv_heads * self.head_dim
-        self.scaling = self.head_dim**-0.5
-        self.rope_theta = rope_theta
-        self.max_position_embeddings = max_position_embeddings
-
 if __name__ == "__main__":
-    pass
+    inv_freq = 1.0 / (
+        100000 ** 
+        (torch.arange(0, 128, 2, dtype=torch.int64).to(device="cpu", dtype=torch.bfloat16) / 128)
+    )
+    print(inv_freq.shape)
