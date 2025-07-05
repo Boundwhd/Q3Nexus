@@ -243,7 +243,7 @@ void rope_cos_sin_bf16_cuda(
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
     
     launch_rope_cos_sin_bf16(
-        positions.data_ptr<uint32_t>(),
+        reinterpret_cast<int32_t*>(positions.data_ptr<int32_t>()),
         reinterpret_cast<__nv_bfloat16*>(inv_freq.data_ptr<at::BFloat16>()),
         reinterpret_cast<__nv_bfloat16*>(cos.data_ptr<at::BFloat16>()),
         reinterpret_cast<__nv_bfloat16*>(sin.data_ptr<at::BFloat16>()),

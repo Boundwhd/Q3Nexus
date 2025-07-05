@@ -7,7 +7,7 @@
 // head_dim 一般为 128
 
 __global__ void rope_cos_sin_bf16(
-    const uint32_t* positions,
+    const int32_t* positions,
     const __nv_bfloat16* inv_freq,
     __nv_bfloat16* cos,
     __nv_bfloat16* sin,
@@ -18,18 +18,18 @@ __global__ void rope_cos_sin_bf16(
     const int row = blockIdx.x;
     const int part = tid % (head_dim / 2);
     #pragma unroll
-    for (int i = tid; i < head_dim; i += blockIdx.x) {
+    for (int i = tid; i < head_dim; i += blockDim.x) {
         float row_co = static_cast<float>(positions[row]);
         float inv = __bfloat162float(inv_freq[part]);
         float cos_value = cosf(row_co * inv);
-        float sin_value = cosf(row_co * inv);
+        float sin_value = sinf(row_co * inv);
         cos[row * head_dim + tid] = __float2bfloat16(cos_value);
         sin[row * head_dim + tid] = __float2bfloat16(sin_value);
     }
 }
 
 void launch_rope_cos_sin_bf16(
-    const uint32_t* positions,
+    const int32_t* positions,
     const __nv_bfloat16* inv_freq,
     __nv_bfloat16* cos,
     __nv_bfloat16* sin,

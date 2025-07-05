@@ -4,7 +4,7 @@
 #include "common.cuh"
 
 void launch_rope_cos_sin_bf16(
-    const uint32_t* positions,
+    const int32_t* positions,
     const __nv_bfloat16* inv_freq,
     __nv_bfloat16* cos,
     __nv_bfloat16* sin,
